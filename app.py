@@ -7,16 +7,16 @@ import html
 import requests
 from bs4 import BeautifulSoup
 
+# Import AI integration libraries
 from google import genai
 from google.genai import types
+from openai import OpenAI
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, HRFlowable
 from reportlab.lib import colors
-# Import OpenAI library for ChatGPT integration
-from openai import OpenAI
 
-# Original scenario definitions[cite: 2]
+# Pre-configured demonstration scenarios
 SCENARIOS = {
     "New Prospect / Blank Canvas": {
         "domain": "", "dba": "", "revenue": "", 
@@ -36,7 +36,10 @@ SCENARIOS = {
 # CORE PIPELINE CLASSES 
 # -----------------------------------------------------------------------------
 def scrape_job_postings_sync(careers_url: str) -> list:
-    """Synchronous web scraping to ensure robust compatibility on cloud runtimes[cite: 2]."""
+    """
+    Synchronous web scraping to ensure robust compatibility on cloud runtimes.
+    Filters standard career site HTML for specific operational keywords.
+    """
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -50,6 +53,7 @@ def scrape_job_postings_sync(careers_url: str) -> list:
         keywords = ["clerk", "entry", "legacy", "manual", "coordinator", "analyst", "pricing", "buyer"]
         jobs_data = []
         
+        # Parse common header and text tags for target keywords
         for tag in soup.find_all(['h2', 'h3', 'h4', 'a', 'div', 'span']):
             text = tag.get_text(separator=" ", strip=True)
             if text and len(text) < 120 and any(k in text.lower() for k in keywords):
@@ -60,11 +64,13 @@ def scrape_job_postings_sync(careers_url: str) -> list:
         return [{"info": f"Scraper execution note: {e}"}]
 
 class PreDiscoveryPipeline:
+    """Manages quantitative signal aggregation from external APIs and HTML parsing."""
+    
     def __init__(self, builtwith_key: str):
         self.builtwith_key = builtwith_key
 
     def fetch_tech_stack(self, domain: str, bypass_cache: bool = False) -> dict:
-        """Retrieves prospect technology stack via BuiltWith API[cite: 2]."""
+        """Retrieves prospect technology stack mapping via the BuiltWith REST API."""
         if not self.builtwith_key:
             return {"info": "BuiltWith API key omitted. Skipping tech lookup."}
         try:
@@ -76,7 +82,7 @@ class PreDiscoveryPipeline:
             return {"error": str(e)}
 
     def run_pipeline(self, prospect_data: dict, bypass_cache: bool = False) -> str:
-        """Aggregates all quantitative signals and contextual CRM data into a structured payload[cite: 2]."""
+        """Aggregates all quantitative signals and contextual CRM data into a structured payload."""
         domain = prospect_data["domain"]
         dba = prospect_data["dba"]
         
@@ -100,9 +106,11 @@ class PreDiscoveryPipeline:
         return json.dumps(payload, indent=2)
 
 class PDFReportGenerator:
+    """Handles parsing of LLM markdown responses into physical PDF reports."""
+    
     @staticmethod
     def _format_markdown_inline(text: str) -> str:
-        """Sanitizes strings and applies basic markdown rendering for PDF conversion[cite: 2]."""
+        """Sanitizes strings and applies basic markdown rendering for ReportLab parsing."""
         text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
         text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
@@ -110,9 +118,11 @@ class PDFReportGenerator:
 
     @staticmethod
     def generate_pdf(briefing_text: str, prospect_name: str, output_filename: str) -> str:
-        """Translates markdown text from LLM output into a formatted ReportLab PDF[cite: 2]."""
+        """Translates markdown text from LLM output into a formatted ReportLab PDF document."""
         doc = SimpleDocTemplate(output_filename, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
         styles = getSampleStyleSheet()
+        
+        # Document styling definitions
         title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=20, leading=24, textColor=colors.HexColor("#1E3A8A"), spaceAfter=6)
         subtitle_style = ParagraphStyle('DocSubTitle', parent=styles['Normal'], fontSize=10, leading=13, textColor=colors.HexColor("#4B5563"), spaceAfter=12)
         heading1_style = ParagraphStyle('SectionHeader1', parent=styles['Heading2'], fontSize=13, leading=16, textColor=colors.HexColor("#1E40AF"), spaceBefore=10, spaceAfter=4)
@@ -128,6 +138,7 @@ class PDFReportGenerator:
             line = line.strip()
             if not line: continue
             try:
+                # Map markdown headers and bullets to ReportLab flowables
                 if line.startswith("# "):
                     story.append(Paragraph(PDFReportGenerator._format_markdown_inline(line[2:].strip()), title_style))
                 elif line.startswith("## "):
@@ -141,6 +152,7 @@ class PDFReportGenerator:
                 else:
                     story.append(Paragraph(PDFReportGenerator._format_markdown_inline(line), body_style))
             except Exception:
+                # Fallback for complex lines that fail regex substitutions
                 story.append(Paragraph(html.escape(re.sub(r'<[^>]+>', '', line)), body_style))
                 
         doc.build(story)
@@ -177,7 +189,7 @@ def execute_orchestrator(prospect_data, bypass_cache, ai_provider, api_key, buil
     elif ai_provider == "ChatGPT":
         client = OpenAI(api_key=api_key)
         response = client.chat.completions.create(
-            model="gpt-4o", # Utilizing GPT-4o as the standard enterprise model
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": f"Generate executive briefing from this context:\n{raw_data}"}
@@ -199,8 +211,9 @@ def execute_orchestrator(prospect_data, bypass_cache, ai_provider, api_key, buil
 # ==============================================================================
 st.set_page_config(page_title="Pre-Discovery Studio", layout="wide")
 st.title("Retail ERP Pre-Discovery Studio")
+st.markdown("*Automates presales research by synthesizing prospect firmographics, tech stacks, and job posting signals into executive briefing PDFs.*")
 
-# Initialize persistent session state for last entry[cite: 2]
+# Initialize persistent session state for last entry
 if "last_entry" not in st.session_state:
     st.session_state.last_entry = {
         "domain": "", "dba": "", "revenue": "", 
@@ -211,6 +224,7 @@ if "last_entry" not in st.session_state:
 # Input Formatting Callbacks
 # -----------------------------------------------------------------------------
 def process_revenue():
+    """Callback to format numeric inputs with commas and currency symbols."""
     raw_val = str(st.session_state.get('revenue_display', ''))
     cleaned = "".join([c for c in raw_val if c.isdigit() or c == '.'])
     
@@ -231,6 +245,7 @@ def process_revenue():
         st.session_state['revenue_numeric'] = 0.0
 
 def process_headcount():
+    """Callback to format standard numeric inputs with standard commas."""
     raw_val = str(st.session_state.get('headcount_display', ''))
     cleaned = "".join([c for c in raw_val if c.isdigit()])
     
@@ -256,6 +271,8 @@ if st.session_state.last_entry.get("dba"):
 scenario_options.update(SCENARIOS)
 
 with st.sidebar:
+    st.markdown("[View Architecture & Documentation on GitHub](https://github.com/mmxco/prediscovery_studio)")
+    st.markdown("---")
     st.header("1. API Credentials")
     
     # Model Selection Widget
@@ -326,6 +343,7 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
             "bdr_notes": bdr_notes_input
         }
         
+        # Update volatile session state
         st.session_state.last_entry = prospect_data
         
         with st.spinner(f"Executing Pipeline via {ai_provider}..."):
