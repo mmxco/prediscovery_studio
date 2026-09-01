@@ -4,13 +4,8 @@ import json
 import time
 import re
 import html
-import asyncio
 import requests
-import concurrent.futures
 from bs4 import BeautifulSoup
-
-# Ensure Playwright binaries are installed on the Streamlit Cloud container
-os.system("playwright install chromium")
 
 from google import genai
 from google.genai import types
@@ -18,8 +13,6 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, HRFlowable
 from reportlab.lib import colors
-
-CACHE_FILE = ".prediscovery_cache.json"
 
 SCENARIOS = {
     "New Prospect / Blank Canvas": {
@@ -36,26 +29,8 @@ SCENARIOS = {
     }
 }
 
-def load_cache() -> dict:
-    """Loads historical session data and API responses to minimize redundant calls."""
-    if os.path.exists(CACHE_FILE):
-        try:
-            with open(CACHE_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"tech_stack": {}, "job_postings": {}, "last_entry": None}
-
-def save_cache(cache_data: dict):
-    """Persists session data to the local file system."""
-    try:
-        with open(CACHE_FILE, "w") as f:
-            json.dump(cache_data, f, indent=2)
-    except Exception as e:
-        print(f"[!] Warning: Failed to write cache file: {e}")
-
-def _fast_path_scrape(careers_url: str) -> list:
-    """Lightweight, compute-efficient web scraper using Requests & BeautifulSoup."""
+def scrape_job_postings_sync(careers_url: str) -> list:
+    """Synchronous web scraping to ensure robust compatibility on cloud runtimes."""
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -75,25 +50,6 @@ def _fast_path_scrape(careers_url: str) -> list:
                 jobs_data.append(text)
                 
         return list(set(jobs_data)) 
-    except Exception:
-        return []
-
-async def _async_scrape_job_postings(careers_url: str) -> list:
-    """Heavyweight Playwright async scraper (Fallback). Refactored to run natively in event loop."""
-    try:
-        from playwright.async_api import async_playwright
-        jobs_data = []
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            await page.goto(careers_url, wait_until="networkidle", timeout=20000)
-            job_elements = await page.locator('.job-posting-title, .job-title, h3, .position-title').all()
-            for job in job_elements:
-                title = await job.inner_text()
-                if any(k in title.lower() for k in ["clerk", "entry", "legacy", "manual", "coordinator", "analyst", "pricing", "buyer"]):
-                    jobs_data.append(title)
-            await browser.close()
-        return jobs_data
     except Exception as e:
         return [{"info": f"Scraper execution note: {e}"}]
 
@@ -103,44 +59,25 @@ class PreDiscoveryPipeline:
 
     def fetch_tech_stack(self, domain: str, bypass_cache: bool = False) -> dict:
         """Retrieves prospect technology stack via BuiltWith API."""
-        cache = load_cache()
-        if not bypass_cache and domain in cache.get("tech_stack", {}):
-            return cache["tech_stack"][domain]
         if not self.builtwith_key:
             return {"info": "BuiltWith API key omitted. Skipping tech lookup."}
         try:
             url = f"https://api.builtwith.com/v23/api.json?KEY={self.builtwith_key}&LOOKUP={domain}"
             response = requests.get(url, timeout=10)
             res_data = response.json() if response.status_code == 200 else {"error": f"HTTP {response.status_code}"}
-            if "error" not in res_data:
-                cache.setdefault("tech_stack", {})[domain] = res_data
-                save_cache(cache)
             return res_data
         except Exception as e:
             return {"error": str(e)}
 
-    async def scrape_job_postings(self, careers_url: str, bypass_cache: bool = False) -> list:
-        """Orchestrates scraping logic, attempting fast path before falling back to Playwright."""
-        cache = load_cache()
-        if not bypass_cache and careers_url in cache.get("job_postings", {}):
-            return cache["job_postings"][careers_url]
-
-        loop = asyncio.get_running_loop()
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            jobs = await loop.run_in_executor(pool, _fast_path_scrape, careers_url)
-            
-        if not jobs:
-            jobs = await _async_scrape_job_postings(careers_url)
-
-        if jobs and isinstance(jobs, list) and not isinstance(jobs[0], dict):
-            cache.setdefault("job_postings", {})[careers_url] = jobs
-            save_cache(cache)
-        return jobs
-
-    async def run_pipeline(self, prospect_data: dict, bypass_cache: bool = False) -> str:
+    def run_pipeline(self, prospect_data: dict, bypass_cache: bool = False) -> str:
         """Aggregates all quantitative signals and contextual CRM data into a structured payload."""
         domain = prospect_data["domain"]
         dba = prospect_data["dba"]
+        
+        jobs = []
+        if prospect_data["careers_url"]:
+            jobs = scrape_job_postings_sync(prospect_data["careers_url"])
+
         payload = {
             "firmographics": {
                 "legal_name": dba,
@@ -151,7 +88,7 @@ class PreDiscoveryPipeline:
             "bdr_discovery_notes": prospect_data["bdr_notes"] or "No initial BDR call notes provided.",
             "quantitative_signals": {
                 "tech_stack": self.fetch_tech_stack(domain, bypass_cache=bypass_cache),
-                "job_board_signals": await self.scrape_job_postings(prospect_data["careers_url"], bypass_cache=bypass_cache)
+                "job_board_signals": jobs
             }
         }
         return json.dumps(payload, indent=2)
@@ -203,14 +140,13 @@ class PDFReportGenerator:
         doc.build(story)
         return output_filename
 
-async def execute_orchestrator(prospect_data, bypass_cache, api_key, builtwith_key):
-    """Executes the core pipeline, integrating web scraping, LLM analysis, and PDF generation."""
+def execute_orchestrator(prospect_data, bypass_cache, api_key, builtwith_key):
+    """Executes the core pipeline, integrating web scraping, LLM analysis, and PDF generation synchronously."""
     pipeline = PreDiscoveryPipeline(builtwith_key)
-    raw_data = await pipeline.run_pipeline(prospect_data, bypass_cache)
+    raw_data = pipeline.run_pipeline(prospect_data, bypass_cache)
     
     client = genai.Client(api_key=api_key)
     
-    # Updated system instruction for generic Tier-1 ERP mapping
     system_instruction = (
         "You are a Senior Solutions Engineer specializing in Retail Enterprise Architecture. "
         "Analyze the provided CRM context and quantitative signals using the 'Value Triangle' "
@@ -233,17 +169,21 @@ async def execute_orchestrator(prospect_data, bypass_cache, api_key, builtwith_k
     return pdf_filename
 
 # ==============================================================================
-# STREAMLIT UI
+# STREAMLIT UI WITH SESSION STATE PERSISTENCE
 # ==============================================================================
 st.set_page_config(page_title="Pre-Discovery Studio", layout="wide")
 st.title("Retail ERP Pre-Discovery Studio")
 
-cache = load_cache()
-last_entry = cache.get("last_entry")
+# Initialize session state for persistent user inputs across reboots
+if "last_entry" not in st.session_state:
+    st.session_state.last_entry = {
+        "domain": "", "dba": "", "revenue": "", 
+        "headcount": "", "careers_url": "", "bdr_notes": ""
+    }
 
 scenario_options = {}
-if last_entry and isinstance(last_entry, dict):
-    scenario_options[f"★ Last Session Entry ({last_entry.get('dba', 'Custom Brand')})"] = last_entry
+if st.session_state.last_entry.get("dba"):
+    scenario_options[f"★ Last Session Entry ({st.session_state.last_entry.get('dba')})"] = st.session_state.last_entry
 scenario_options.update(SCENARIOS)
 
 with st.sidebar:
@@ -277,13 +217,12 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
             "careers_url": careers_input, "bdr_notes": bdr_notes_input
         }
         
-        c_data = load_cache()
-        c_data["last_entry"] = prospect_data
-        save_cache(c_data)
+        # Save state persistently in session state
+        st.session_state.last_entry = prospect_data
         
         with st.spinner("Executing Pipeline & Synthesizing AI Briefing..."):
             try:
-                pdf_path = asyncio.run(execute_orchestrator(prospect_data, bypass_cache, gemini_key, builtwith_key))
+                pdf_path = execute_orchestrator(prospect_data, bypass_cache, gemini_key, builtwith_key)
                 
                 with open(pdf_path, "rb") as pdf_file:
                     st.success("Pipeline Completed Successfully!")
