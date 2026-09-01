@@ -25,10 +25,10 @@ SCENARIOS = {
     "Scenario 1: Target Regional Assortment & Allocation Misalignment (Inventory)": {
         "domain": "https://target.com",
         "dba": "Target",
-        "revenue": "20000000000",
-        "headcount": "14500",
+        "revenue": "104780000000",
+        "headcount": "440000",
         "careers_url": "https://corporate.target.com/careers",
-        "bdr_notes": "Director of Merchandising mentioned regional store clusters are too broad. Southern stores receive heavy winter apparel allocations meant for Northern stores, causing $1.2M in inter-store transfer freight and severe localized stockouts."
+        "bdr_notes": "Director of Merchandising mentioned regional store clusters are too broad. Southern stores receive heavy winter apparel allocations meant for Northern stores, causing $150.2M in inter-store transfer freight and localized stockouts."
     }
 }
 
