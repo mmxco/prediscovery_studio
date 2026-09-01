@@ -144,8 +144,27 @@ class PDFReportGenerator:
     """Handles parsing of LLM markdown responses into physical PDF reports."""
     
     @staticmethod
+    def _sanitize_unicode(text: str) -> str:
+        """Replaces common non-ASCII Unicode characters with ASCII-safe alternatives."""
+        replacements = {
+            '\u2014': '--',    # Em dash
+            '\u2013': '-',     # En dash
+            '\u2018': "'",     # Left single quote
+            '\u2019': "'",     # Right single quote / apostrophe
+            '\u201c': '"',     # Left double quote
+            '\u201d': '"',     # Right double quote
+            '\u2022': '&bull;', # Bullet
+            '\u2026': '...',   # Ellipsis
+            '\u00a0': ' ',     # Non-breaking space
+        }
+        for char, repl in replacements.items():
+            text = text.replace(char, repl)
+        return text
+
+    @staticmethod
     def _format_markdown_inline(text: str) -> str:
         """Sanitizes strings and applies basic markdown rendering for ReportLab parsing."""
+        text = PDFReportGenerator._sanitize_unicode(text)
         text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
         text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
@@ -154,7 +173,14 @@ class PDFReportGenerator:
     @staticmethod
     def generate_pdf(briefing_text: str, prospect_name: str, output_filename: str) -> str:
         """Translates markdown text from LLM output into a formatted ReportLab PDF document."""
-        doc = SimpleDocTemplate(output_filename, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+        doc = SimpleDocTemplate(
+            output_filename, 
+            pagesize=letter, 
+            rightMargin=36, 
+            leftMargin=36, 
+            topMargin=36, 
+            bottomMargin=36
+        )
         styles = getSampleStyleSheet()
         
         # Document styling definitions
@@ -165,13 +191,15 @@ class PDFReportGenerator:
         body_style = ParagraphStyle('BodyTextCustom', parent=styles['Normal'], fontSize=9.5, leading=13, textColor=colors.HexColor("#1F2937"), spaceAfter=6)
         
         story = []
+        safe_prospect_name = PDFReportGenerator._sanitize_unicode(prospect_name)
         story.append(Paragraph("Executive Pre-Discovery Briefing", title_style))
-        story.append(Paragraph(f"<b>Target Account:</b> {html.escape(prospect_name)} | <b>Generated:</b> {time.strftime('%Y-%m-%d')}", subtitle_style))
+        story.append(Paragraph(f"<b>Target Account:</b> {html.escape(safe_prospect_name)} | <b>Generated:</b> {time.strftime('%Y-%m-%d')}", subtitle_style))
         story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#1E3A8A"), spaceAfter=12))
         
         for line in briefing_text.split('\n'):
             line = line.strip()
-            if not line: continue
+            if not line: 
+                continue
             try:
                 # Map markdown headers and bullets to ReportLab flowables
                 if line.startswith("# "):
@@ -181,14 +209,16 @@ class PDFReportGenerator:
                 elif line.startswith("### "):
                     story.append(Paragraph(PDFReportGenerator._format_markdown_inline(line[4:].strip()), heading2_style))
                 elif line.startswith("* ") or line.startswith("- "):
-                    story.append(Paragraph(f"• {PDFReportGenerator._format_markdown_inline(line[2:].strip())}", body_style))
+                    story.append(Paragraph(f"&bull; {PDFReportGenerator._format_markdown_inline(line[2:].strip())}", body_style))
                 elif line.startswith("---") or line.startswith("***"):
                     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#CBD5E1"), spaceBefore=6, spaceAfter=6))
                 else:
                     story.append(Paragraph(PDFReportGenerator._format_markdown_inline(line), body_style))
             except Exception:
                 # Fallback for complex lines that fail regex substitutions
-                story.append(Paragraph(html.escape(re.sub(r'<[^>]+>', '', line)), body_style))
+                clean_line = PDFReportGenerator._sanitize_unicode(line)
+                clean_line = html.escape(re.sub(r'<[^>]+>', '', clean_line))
+                story.append(Paragraph(clean_line, body_style))
                 
         doc.build(story)
         return output_filename
