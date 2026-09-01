@@ -33,8 +33,37 @@ SCENARIOS = {
 }
 
 # -----------------------------------------------------------------------------
-# CORE PIPELINE CLASSES 
+# CORE PIPELINE & PARSING UTILITIES
 # -----------------------------------------------------------------------------
+def parse_manual_builtwith(raw_text: str) -> dict:
+    """
+    Cleans and structures raw pasted BuiltWith text or JSON into a concise, 
+    AI-friendly format optimized for chat token windows.
+    """
+    raw_text = raw_text.strip()
+    if not raw_text:
+        return {}
+    try:
+        # Attempt to parse as BuiltWith API JSON response
+        data = json.loads(raw_text)
+        techs = []
+        if "Results" in data:
+            for result in data["Results"]:
+                for path in result.get("Paths", []):
+                    for tech in path.get("Technologies", []):
+                        name = tech.get("Name")
+                        tag = tech.get("Tag", "General")
+                        if name:
+                            techs.append(f"{name} [{tag}]")
+        if techs:
+            return {"detected_technologies": sorted(list(set(techs)))}
+        return data
+    except json.JSONDecodeError:
+        # Handle raw text pasted from browser (line-by-line cleanup and deduplication)
+        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        cleaned_lines = list(dict.fromkeys(lines))
+        return {"pasted_tech_stack_summary": cleaned_lines}
+
 def scrape_job_postings_sync(careers_url: str) -> list:
     """
     Synchronous web scraping to ensure robust compatibility on cloud runtimes.
@@ -70,21 +99,20 @@ class PreDiscoveryPipeline:
         self.builtwith_key = builtwith_key
 
     def fetch_tech_stack(self, domain: str, manual_builtwith: str = "", bypass_cache: bool = False) -> dict:
-        """Retrieves prospect technology stack mapping via the BuiltWith REST API or manual entry."""
+        """Retrieves prospect technology stack mapping via manual paste or the BuiltWith REST API."""
         if manual_builtwith.strip():
-            try:
-                return json.loads(manual_builtwith)
-            except Exception:
-                return {"raw_manual_entry": manual_builtwith.strip()}
+            return parse_manual_builtwith(manual_builtwith)
                 
         if not self.builtwith_key:
-            return {"info": "BuiltWith API key omitted. Skipping tech lookup."}
+            return {"info": "BuiltWith API key omitted and no manual data provided. Skipping tech lookup."}
             
         try:
             url = f"https://api.builtwith.com/v23/api.json?KEY={self.builtwith_key}&LOOKUP={domain}"
             response = requests.get(url, timeout=10)
-            res_data = response.json() if response.status_code == 200 else {"error": f"HTTP {response.status_code}"}
-            return res_data
+            if response.status_code == 200:
+                return parse_manual_builtwith(response.text)
+            else:
+                return {"error": f"HTTP {response.status_code}"}
         except Exception as e:
             return {"error": str(e)}
 
@@ -297,7 +325,7 @@ with st.sidebar:
     st.markdown("---")
     st.header("1. API Credentials")
     
-    # Model Selection Widget updated with manual prompt option
+    # Model Selection Widget
     ai_provider = st.selectbox("AI Provider", options=["Gemini", "ChatGPT", "Other (Manual Prompt)"], index=0)
     
     # Conditionally render the API key input based on provider selection
@@ -307,20 +335,20 @@ with st.sidebar:
     elif ai_provider == "ChatGPT":
         llm_key = st.text_input("OpenAI API Key:", type="password")
         
-    builtwith_key = st.text_input("BuiltWith Key:", type="password")
+    st.header("2. Tech Stack Data Source")
+    builtwith_key = st.text_input("BuiltWith API Key:", type="password")
     
-    # Conditionally render manual BuiltWith data entry if API integration is bypassed
-    manual_builtwith = ""
-    if ai_provider == "Other (Manual Prompt)":
-        manual_builtwith = st.text_area(
-            "Manual BuiltWith Data:", 
-            placeholder="Paste raw text or JSON payload from BuiltWith...",
-            help="Bypasses the BuiltWith API. Useful for manual prompt generation."
-        )
+    st.markdown("<div style='text-align: center; font-weight: bold; margin: -5px 0;'>— OR —</div>", unsafe_allow_html=True)
+    
+    manual_builtwith = st.text_area(
+        "Paste BuiltWith Data:", 
+        placeholder="Paste raw text or JSON payload here...",
+        help="Automatically parses and cleans raw text or JSON into a concise format for AI chat usage."
+    )
 
     bypass_cache = st.checkbox("Bypass Cache", value=False)
 
-st.header("2. Target Prospect Context")
+st.header("3. Target Prospect Context")
 selected_scenario = st.selectbox("Preset / Last:", list(scenario_options.keys()))
 init_scen = scenario_options[selected_scenario]
 
