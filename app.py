@@ -13,8 +13,10 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, HRFlowable
 from reportlab.lib import colors
+# Import OpenAI library for ChatGPT integration
+from openai import OpenAI
 
-# Original scenario definitions[cite: 1]
+# Original scenario definitions[cite: 2]
 SCENARIOS = {
     "New Prospect / Blank Canvas": {
         "domain": "", "dba": "", "revenue": "", 
@@ -23,7 +25,7 @@ SCENARIOS = {
     "Scenario 1: Target Regional Assortment & Allocation Misalignment (Inventory)": {
         "domain": "https://target.com",
         "dba": "Target",
-        "revenue": "20000000000", # Adjusted to raw number to demonstrate auto-formatting
+        "revenue": "20000000000",
         "headcount": "14500",
         "careers_url": "https://corporate.target.com/careers",
         "bdr_notes": "Director of Merchandising mentioned regional store clusters are too broad. Southern stores receive heavy winter apparel allocations meant for Northern stores, causing $1.2M in inter-store transfer freight and severe localized stockouts."
@@ -31,10 +33,10 @@ SCENARIOS = {
 }
 
 # -----------------------------------------------------------------------------
-# CORE PIPELINE CLASSES (Unchanged from source)
+# CORE PIPELINE CLASSES 
 # -----------------------------------------------------------------------------
 def scrape_job_postings_sync(careers_url: str) -> list:
-    """Synchronous web scraping to ensure robust compatibility on cloud runtimes[cite: 1]."""
+    """Synchronous web scraping to ensure robust compatibility on cloud runtimes[cite: 2]."""
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -62,7 +64,7 @@ class PreDiscoveryPipeline:
         self.builtwith_key = builtwith_key
 
     def fetch_tech_stack(self, domain: str, bypass_cache: bool = False) -> dict:
-        """Retrieves prospect technology stack via BuiltWith API[cite: 1]."""
+        """Retrieves prospect technology stack via BuiltWith API[cite: 2]."""
         if not self.builtwith_key:
             return {"info": "BuiltWith API key omitted. Skipping tech lookup."}
         try:
@@ -74,7 +76,7 @@ class PreDiscoveryPipeline:
             return {"error": str(e)}
 
     def run_pipeline(self, prospect_data: dict, bypass_cache: bool = False) -> str:
-        """Aggregates all quantitative signals and contextual CRM data into a structured payload[cite: 1]."""
+        """Aggregates all quantitative signals and contextual CRM data into a structured payload[cite: 2]."""
         domain = prospect_data["domain"]
         dba = prospect_data["dba"]
         
@@ -100,7 +102,7 @@ class PreDiscoveryPipeline:
 class PDFReportGenerator:
     @staticmethod
     def _format_markdown_inline(text: str) -> str:
-        """Sanitizes strings and applies basic markdown rendering for PDF conversion[cite: 1]."""
+        """Sanitizes strings and applies basic markdown rendering for PDF conversion[cite: 2]."""
         text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
         text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
@@ -108,7 +110,7 @@ class PDFReportGenerator:
 
     @staticmethod
     def generate_pdf(briefing_text: str, prospect_name: str, output_filename: str) -> str:
-        """Translates markdown text from LLM output into a formatted ReportLab PDF[cite: 1]."""
+        """Translates markdown text from LLM output into a formatted ReportLab PDF[cite: 2]."""
         doc = SimpleDocTemplate(output_filename, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=20, leading=24, textColor=colors.HexColor("#1E3A8A"), spaceAfter=6)
@@ -144,12 +146,13 @@ class PDFReportGenerator:
         doc.build(story)
         return output_filename
 
-def execute_orchestrator(prospect_data, bypass_cache, api_key, builtwith_key):
-    """Executes the core pipeline, integrating web scraping, LLM analysis, and PDF generation synchronously[cite: 1]."""
+def execute_orchestrator(prospect_data, bypass_cache, ai_provider, api_key, builtwith_key):
+    """
+    Executes the core pipeline, integrating web scraping, LLM analysis, and PDF generation.
+    Routes the execution to either Gemini or ChatGPT based on the ai_provider parameter.
+    """
     pipeline = PreDiscoveryPipeline(builtwith_key)
     raw_data = pipeline.run_pipeline(prospect_data, bypass_cache)
-    
-    client = genai.Client(api_key=api_key)
     
     system_instruction = (
         "You are a Senior Solutions Engineer specializing in Retail Enterprise Architecture. "
@@ -161,15 +164,33 @@ def execute_orchestrator(prospect_data, bypass_cache, api_key, builtwith_key):
         "'Dynamic Price Management'). Do not mention specific vendor or platform names in the output."
     )
     
-    chat = client.chats.create(
-        model='gemini-2.5-flash',
-        config=types.GenerateContentConfig(system_instruction=system_instruction, temperature=0.2)
-    )
-    response = chat.send_message(f"Generate executive briefing from this context:\n{raw_data}")
+    # AI Provider Routing Logic
+    if ai_provider == "Gemini":
+        client = genai.Client(api_key=api_key)
+        chat = client.chats.create(
+            model='gemini-2.5-flash',
+            config=types.GenerateContentConfig(system_instruction=system_instruction, temperature=0.2)
+        )
+        response = chat.send_message(f"Generate executive briefing from this context:\n{raw_data}")
+        briefing_text = response.text
+        
+    elif ai_provider == "ChatGPT":
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model="gpt-4o", # Utilizing GPT-4o as the standard enterprise model
+            messages=[
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": f"Generate executive briefing from this context:\n{raw_data}"}
+            ],
+            temperature=0.2
+        )
+        briefing_text = response.choices[0].message.content
+    else:
+        raise ValueError("Invalid AI Provider selected.")
     
     base_name = prospect_data["dba"].replace(' ', '_') or "Prospect"
     pdf_filename = f"{base_name}_Pre_Discovery_Brief.pdf"
-    PDFReportGenerator.generate_pdf(response.text, prospect_data["dba"], pdf_filename)
+    PDFReportGenerator.generate_pdf(briefing_text, prospect_data["dba"], pdf_filename)
     return pdf_filename
 
 
@@ -179,7 +200,7 @@ def execute_orchestrator(prospect_data, bypass_cache, api_key, builtwith_key):
 st.set_page_config(page_title="Pre-Discovery Studio", layout="wide")
 st.title("Retail ERP Pre-Discovery Studio")
 
-# Initialize persistent session state for last entry[cite: 1]
+# Initialize persistent session state for last entry[cite: 2]
 if "last_entry" not in st.session_state:
     st.session_state.last_entry = {
         "domain": "", "dba": "", "revenue": "", 
@@ -190,13 +211,7 @@ if "last_entry" not in st.session_state:
 # Input Formatting Callbacks
 # -----------------------------------------------------------------------------
 def process_revenue():
-    """
-    Extracts raw string from the UI state, strips symbols, calculates the raw numeric
-    value to prevent type mismatches in backend processing, and pushes the formatted 
-    string ($ + commas) back to the UI.
-    """
     raw_val = str(st.session_state.get('revenue_display', ''))
-    # Isolate digits and decimal point
     cleaned = "".join([c for c in raw_val if c.isdigit() or c == '.'])
     
     if not cleaned:
@@ -205,9 +220,7 @@ def process_revenue():
         return
         
     try:
-        # Save float for downstream calculations
         st.session_state['revenue_numeric'] = float(cleaned)
-        # Re-format string for display
         if '.' in cleaned:
             int_part, dec_part = cleaned.split('.', 1)
             st.session_state['revenue_display'] = f"${int(int_part):,}.{dec_part}"
@@ -218,12 +231,7 @@ def process_revenue():
         st.session_state['revenue_numeric'] = 0.0
 
 def process_headcount():
-    """
-    Extracts raw string from the UI state, strips symbols, calculates the raw integer,
-    and pushes the comma-separated string back to the UI.
-    """
     raw_val = str(st.session_state.get('headcount_display', ''))
-    # Isolate digits only for headcount
     cleaned = "".join([c for c in raw_val if c.isdigit()])
     
     if not cleaned:
@@ -249,7 +257,16 @@ scenario_options.update(SCENARIOS)
 
 with st.sidebar:
     st.header("1. API Credentials")
-    gemini_key = st.text_input("Gemini Key:", type="password")
+    
+    # Model Selection Widget
+    ai_provider = st.selectbox("AI Provider", options=["Gemini", "ChatGPT"], index=0)
+    
+    # Conditionally render the API key input based on provider selection
+    if ai_provider == "Gemini":
+        llm_key = st.text_input("Gemini API Key:", type="password")
+    else:
+        llm_key = st.text_input("OpenAI API Key:", type="password")
+        
     builtwith_key = st.text_input("BuiltWith Key:", type="password")
     bypass_cache = st.checkbox("Bypass Cache", value=False)
 
@@ -257,13 +274,10 @@ st.header("2. Target Prospect Context")
 selected_scenario = st.selectbox("Preset / Last:", list(scenario_options.keys()))
 init_scen = scenario_options[selected_scenario]
 
-# State Sync: Force formatting updates when a new scenario dropdown option is selected
 if "current_scenario" not in st.session_state or st.session_state.current_scenario != selected_scenario:
     st.session_state.current_scenario = selected_scenario
-    # Seed the display states with raw strings from the dictionary
     st.session_state['revenue_display'] = init_scen.get("revenue", "")
     st.session_state['headcount_display'] = init_scen.get("headcount", "")
-    # Programmatically trigger the formatting logic
     process_revenue()
     process_headcount()
 
@@ -283,7 +297,6 @@ with col1:
     )
 
 with col2:
-    # Text inputs bound directly to session state keys to execute callbacks on blur/enter
     st.text_input(
         "Annual Revenue:", 
         key="revenue_display",
@@ -300,10 +313,10 @@ with col2:
 bdr_notes_input = st.text_area("BDR Notes:", value=init_scen.get("bdr_notes", ""), height=100)
 
 if st.button("Run Pre-Discovery Pipeline", type="primary"):
-    if not gemini_key:
-        st.error("Error: Gemini API key is required.")
+    # Validate the active API key is provided
+    if not llm_key:
+        st.error(f"Error: {ai_provider} API key is required.")
     else:
-        # Construct pipeline payload utilizing the formatted display variables for LLM context[cite: 1]
         prospect_data = {
             "domain": domain_input, 
             "dba": dba_input,
@@ -313,13 +326,18 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
             "bdr_notes": bdr_notes_input
         }
         
-        # Save state persistently in session state[cite: 1]
         st.session_state.last_entry = prospect_data
         
-        with st.spinner("Executing Pipeline & Synthesizing AI Briefing..."):
+        with st.spinner(f"Executing Pipeline via {ai_provider}..."):
             try:
-                # Execute synchronous orchestrator[cite: 1]
-                pdf_path = execute_orchestrator(prospect_data, bypass_cache, gemini_key, builtwith_key)
+                # Pass the selected provider and associated key to the orchestrator
+                pdf_path = execute_orchestrator(
+                    prospect_data=prospect_data, 
+                    bypass_cache=bypass_cache, 
+                    ai_provider=ai_provider,
+                    api_key=llm_key, 
+                    builtwith_key=builtwith_key
+                )
                 
                 with open(pdf_path, "rb") as pdf_file:
                     st.success("Pipeline Completed Successfully!")
