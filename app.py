@@ -421,7 +421,6 @@ with col2:
 bdr_notes_input = st.text_area("BDR Notes:", value=init_scen.get("bdr_notes", ""), height=100)
 
 if st.button("Run Pre-Discovery Pipeline", type="primary"):
-    # Validate the active API key is provided, skipping validation if Manual Prompt is selected
     if ai_provider != "Other (Manual Prompt)" and not llm_key:
         st.error(f"Error: {ai_provider} API key is required.")
     else:
@@ -434,12 +433,10 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
             "bdr_notes": bdr_notes_input
         }
         
-        # Update volatile session state
         st.session_state.last_entry = prospect_data
         
         with st.spinner(f"Executing Pipeline via {ai_provider}..."):
             try:
-                # Pass the selected provider and associated key to the orchestrator
                 file_path, mime_type = execute_orchestrator(
                     prospect_data=prospect_data, 
                     bypass_cache=bypass_cache, 
@@ -450,14 +447,26 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
                 )
                 
                 with open(file_path, "rb") as output_file:
+                    file_bytes = output_file.read()
                     st.success("Pipeline Completed Successfully!")
                     button_label = "Download Manual Prompt (.txt)" if ai_provider == "Other (Manual Prompt)" else "Download Executive PDF Briefing"
                     
                     st.download_button(
                         label=button_label,
-                        data=output_file,
+                        data=file_bytes,
                         file_name=file_path,
                         mime=mime_type
                     )
+                
+                # Automatically display the deliverable in the UI
+                if mime_type == "application/pdf":
+                    st.markdown("### Document Preview")
+                    base64_pdf = base64.b64encode(file_bytes).decode('utf-8')
+                    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
+                    st.markdown(pdf_display, unsafe_allow_html=True)
+                elif mime_type == "text/plain":
+                    st.markdown("### Generated Prompt Preview")
+                    st.text_area("Prompt Content:", value=file_bytes.decode('utf-8'), height=400)
+
             except Exception as e:
                 st.error(f"Pipeline Failed: {e}")
