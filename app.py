@@ -69,10 +69,17 @@ class PreDiscoveryPipeline:
     def __init__(self, builtwith_key: str):
         self.builtwith_key = builtwith_key
 
-    def fetch_tech_stack(self, domain: str, bypass_cache: bool = False) -> dict:
-        """Retrieves prospect technology stack mapping via the BuiltWith REST API."""
+    def fetch_tech_stack(self, domain: str, manual_builtwith: str = "", bypass_cache: bool = False) -> dict:
+        """Retrieves prospect technology stack mapping via the BuiltWith REST API or manual entry."""
+        if manual_builtwith.strip():
+            try:
+                return json.loads(manual_builtwith)
+            except Exception:
+                return {"raw_manual_entry": manual_builtwith.strip()}
+                
         if not self.builtwith_key:
             return {"info": "BuiltWith API key omitted. Skipping tech lookup."}
+            
         try:
             url = f"https://api.builtwith.com/v23/api.json?KEY={self.builtwith_key}&LOOKUP={domain}"
             response = requests.get(url, timeout=10)
@@ -81,7 +88,7 @@ class PreDiscoveryPipeline:
         except Exception as e:
             return {"error": str(e)}
 
-    def run_pipeline(self, prospect_data: dict, bypass_cache: bool = False) -> str:
+    def run_pipeline(self, prospect_data: dict, manual_builtwith: str = "", bypass_cache: bool = False) -> str:
         """Aggregates all quantitative signals and contextual CRM data into a structured payload."""
         domain = prospect_data["domain"]
         dba = prospect_data["dba"]
@@ -99,7 +106,7 @@ class PreDiscoveryPipeline:
             },
             "bdr_discovery_notes": prospect_data["bdr_notes"] or "No initial BDR call notes provided.",
             "quantitative_signals": {
-                "tech_stack": self.fetch_tech_stack(domain, bypass_cache=bypass_cache),
+                "tech_stack": self.fetch_tech_stack(domain, manual_builtwith=manual_builtwith, bypass_cache=bypass_cache),
                 "job_board_signals": jobs
             }
         }
@@ -158,14 +165,14 @@ class PDFReportGenerator:
         doc.build(story)
         return output_filename
 
-def execute_orchestrator(prospect_data, bypass_cache, ai_provider, api_key, builtwith_key):
+def execute_orchestrator(prospect_data, bypass_cache, ai_provider, api_key, builtwith_key, manual_builtwith):
     """
     Executes the core pipeline, integrating web scraping, LLM analysis, and PDF generation.
     Routes the execution to Gemini, ChatGPT, or generates a manual text prompt.
     Returns a tuple of (file_path, mime_type).
     """
     pipeline = PreDiscoveryPipeline(builtwith_key)
-    raw_data = pipeline.run_pipeline(prospect_data, bypass_cache)
+    raw_data = pipeline.run_pipeline(prospect_data, manual_builtwith=manual_builtwith, bypass_cache=bypass_cache)
     
     system_instruction = (
         "You are a Senior Solutions Engineer specializing in Retail Enterprise Architecture. "
@@ -300,6 +307,16 @@ with st.sidebar:
         llm_key = st.text_input("OpenAI API Key:", type="password")
         
     builtwith_key = st.text_input("BuiltWith Key:", type="password")
+    
+    # Conditionally render manual BuiltWith data entry if API integration is bypassed
+    manual_builtwith = ""
+    if ai_provider == "Other (Manual Prompt)":
+        manual_builtwith = st.text_area(
+            "Manual BuiltWith Data:", 
+            placeholder="Paste raw text or JSON payload from BuiltWith...",
+            help="Bypasses the BuiltWith API. Useful for manual prompt generation."
+        )
+
     bypass_cache = st.checkbox("Bypass Cache", value=False)
 
 st.header("2. Target Prospect Context")
@@ -369,7 +386,8 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
                     bypass_cache=bypass_cache, 
                     ai_provider=ai_provider,
                     api_key=llm_key, 
-                    builtwith_key=builtwith_key
+                    builtwith_key=builtwith_key,
+                    manual_builtwith=manual_builtwith
                 )
                 
                 with open(file_path, "rb") as output_file:
