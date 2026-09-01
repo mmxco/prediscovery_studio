@@ -181,7 +181,8 @@ def execute_orchestrator(prospect_data, bypass_cache, ai_provider, api_key, buil
         "Map technical deficits to modern Tier-1 Retail ERP capabilities. "
         "Use an aggregate of functionality from platforms like Oracle, SAP, and Microsoft Dynamics as your baseline, "
         "but strictly use generic terminology (e.g., 'Unified Inventory Management', 'Advanced Merchandising System', "
-        "'Dynamic Price Management'). Do not mention specific vendor or platform names in the output."
+        "'Dynamic Price Management'). Do not mention specific vendor or platform names in the output. "
+        "Format your response using structured Markdown. Use '# ' for the main title, '## ' for major sections, '### ' for subsections, and bullet points ('* ' or '- ') for itemized insights."
     )
     
     base_name = prospect_data["dba"].replace(' ', '_') or "Prospect"
