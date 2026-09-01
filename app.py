@@ -161,7 +161,8 @@ class PDFReportGenerator:
 def execute_orchestrator(prospect_data, bypass_cache, ai_provider, api_key, builtwith_key):
     """
     Executes the core pipeline, integrating web scraping, LLM analysis, and PDF generation.
-    Routes the execution to either Gemini or ChatGPT based on the ai_provider parameter.
+    Routes the execution to Gemini, ChatGPT, or generates a manual text prompt.
+    Returns a tuple of (file_path, mime_type).
     """
     pipeline = PreDiscoveryPipeline(builtwith_key)
     raw_data = pipeline.run_pipeline(prospect_data, bypass_cache)
@@ -175,6 +176,20 @@ def execute_orchestrator(prospect_data, bypass_cache, ai_provider, api_key, buil
         "but strictly use generic terminology (e.g., 'Unified Inventory Management', 'Advanced Merchandising System', "
         "'Dynamic Price Management'). Do not mention specific vendor or platform names in the output."
     )
+    
+    base_name = prospect_data["dba"].replace(' ', '_') or "Prospect"
+    
+    # Manual Prompt Generation Logic
+    if ai_provider == "Other (Manual Prompt)":
+        txt_filename = f"{base_name}_Manual_Prompt.txt"
+        with open(txt_filename, "w", encoding="utf-8") as f:
+            f.write("=== SYSTEM INSTRUCTION ===\n")
+            f.write("Copy and paste the following into your AI's system prompt or custom instructions:\n\n")
+            f.write(system_instruction + "\n\n")
+            f.write("=== USER PROMPT ===\n")
+            f.write("Copy and paste the following into the user chat interface:\n\n")
+            f.write(f"Generate executive briefing from this context:\n{raw_data}\n")
+        return txt_filename, "text/plain"
     
     # AI Provider Routing Logic
     if ai_provider == "Gemini":
@@ -200,10 +215,9 @@ def execute_orchestrator(prospect_data, bypass_cache, ai_provider, api_key, buil
     else:
         raise ValueError("Invalid AI Provider selected.")
     
-    base_name = prospect_data["dba"].replace(' ', '_') or "Prospect"
     pdf_filename = f"{base_name}_Pre_Discovery_Brief.pdf"
     PDFReportGenerator.generate_pdf(briefing_text, prospect_data["dba"], pdf_filename)
-    return pdf_filename
+    return pdf_filename, "application/pdf"
 
 
 # ==============================================================================
@@ -275,13 +289,14 @@ with st.sidebar:
     st.markdown("---")
     st.header("1. API Credentials")
     
-    # Model Selection Widget
-    ai_provider = st.selectbox("AI Provider", options=["Gemini", "ChatGPT"], index=0)
+    # Model Selection Widget updated with manual prompt option
+    ai_provider = st.selectbox("AI Provider", options=["Gemini", "ChatGPT", "Other (Manual Prompt)"], index=0)
     
     # Conditionally render the API key input based on provider selection
+    llm_key = ""
     if ai_provider == "Gemini":
         llm_key = st.text_input("Gemini API Key:", type="password")
-    else:
+    elif ai_provider == "ChatGPT":
         llm_key = st.text_input("OpenAI API Key:", type="password")
         
     builtwith_key = st.text_input("BuiltWith Key:", type="password")
@@ -330,8 +345,8 @@ with col2:
 bdr_notes_input = st.text_area("BDR Notes:", value=init_scen.get("bdr_notes", ""), height=100)
 
 if st.button("Run Pre-Discovery Pipeline", type="primary"):
-    # Validate the active API key is provided
-    if not llm_key:
+    # Validate the active API key is provided, skipping validation if Manual Prompt is selected
+    if ai_provider != "Other (Manual Prompt)" and not llm_key:
         st.error(f"Error: {ai_provider} API key is required.")
     else:
         prospect_data = {
@@ -349,7 +364,7 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
         with st.spinner(f"Executing Pipeline via {ai_provider}..."):
             try:
                 # Pass the selected provider and associated key to the orchestrator
-                pdf_path = execute_orchestrator(
+                file_path, mime_type = execute_orchestrator(
                     prospect_data=prospect_data, 
                     bypass_cache=bypass_cache, 
                     ai_provider=ai_provider,
@@ -357,13 +372,15 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
                     builtwith_key=builtwith_key
                 )
                 
-                with open(pdf_path, "rb") as pdf_file:
+                with open(file_path, "rb") as output_file:
                     st.success("Pipeline Completed Successfully!")
+                    button_label = "Download Manual Prompt (.txt)" if ai_provider == "Other (Manual Prompt)" else "Download Executive PDF Briefing"
+                    
                     st.download_button(
-                        label="Download Executive PDF Briefing",
-                        data=pdf_file,
-                        file_name=pdf_path,
-                        mime="application/pdf"
+                        label=button_label,
+                        data=output_file,
+                        file_name=file_path,
+                        mime=mime_type
                     )
             except Exception as e:
                 st.error(f"Pipeline Failed: {e}")
