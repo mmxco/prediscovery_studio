@@ -20,12 +20,12 @@ SCENARIOS = {
         "domain": "", "dba": "", "revenue": "", 
         "headcount": "", "careers_url": "", "bdr_notes": ""
     },
-    "Scenario 1: Regional Assortment & Allocation Misalignment (Inventory)": {
-        "domain": "bigronline.com",
-        "dba": "Big R Stores",
-        "revenue": "1200000000", # Adjusted to raw number to demonstrate auto-formatting
-        "headcount": "12500",
-        "careers_url": "https://www.bigronline.com/careers",
+    "Scenario 1: Target Regional Assortment & Allocation Misalignment (Inventory)": {
+        "domain": "https://target.com",
+        "dba": "Target",
+        "revenue": "20000000000", # Adjusted to raw number to demonstrate auto-formatting
+        "headcount": "14500",
+        "careers_url": "https://corporate.target.com/careers",
         "bdr_notes": "Director of Merchandising mentioned regional store clusters are too broad. Southern stores receive heavy winter apparel allocations meant for Northern stores, causing $1.2M in inter-store transfer freight and severe localized stockouts."
     }
 }
