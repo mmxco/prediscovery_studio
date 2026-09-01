@@ -5,6 +5,7 @@ import time
 import re
 import html
 import requests
+import base64
 from bs4 import BeautifulSoup
 
 # Import AI integration libraries
@@ -421,6 +422,7 @@ with col2:
 bdr_notes_input = st.text_area("BDR Notes:", value=init_scen.get("bdr_notes", ""), height=100)
 
 if st.button("Run Pre-Discovery Pipeline", type="primary"):
+    # Validate the active API key is provided, skipping validation if Manual Prompt is selected
     if ai_provider != "Other (Manual Prompt)" and not llm_key:
         st.error(f"Error: {ai_provider} API key is required.")
     else:
@@ -433,10 +435,12 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
             "bdr_notes": bdr_notes_input
         }
         
+        # Update volatile session state
         st.session_state.last_entry = prospect_data
         
         with st.spinner(f"Executing Pipeline via {ai_provider}..."):
             try:
+                # Pass the selected provider and associated key to the orchestrator
                 file_path, mime_type = execute_orchestrator(
                     prospect_data=prospect_data, 
                     bypass_cache=bypass_cache, 
