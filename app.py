@@ -14,6 +14,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, HRFlowable
 from reportlab.lib import colors
 
+# Original scenario definitions[cite: 1]
 SCENARIOS = {
     "New Prospect / Blank Canvas": {
         "domain": "", "dba": "", "revenue": "", 
@@ -22,15 +23,18 @@ SCENARIOS = {
     "Scenario 1: Regional Assortment & Allocation Misalignment (Inventory)": {
         "domain": "bigronline.com",
         "dba": "Big R Stores",
-        "revenue": "$1.2B",
+        "revenue": "1200000000", # Adjusted to raw number to demonstrate auto-formatting
         "headcount": "12500",
         "careers_url": "https://www.bigronline.com/careers",
         "bdr_notes": "Director of Merchandising mentioned regional store clusters are too broad. Southern stores receive heavy winter apparel allocations meant for Northern stores, causing $1.2M in inter-store transfer freight and severe localized stockouts."
     }
 }
 
+# -----------------------------------------------------------------------------
+# CORE PIPELINE CLASSES (Unchanged from source)
+# -----------------------------------------------------------------------------
 def scrape_job_postings_sync(careers_url: str) -> list:
-    """Synchronous web scraping to ensure robust compatibility on cloud runtimes."""
+    """Synchronous web scraping to ensure robust compatibility on cloud runtimes[cite: 1]."""
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -58,7 +62,7 @@ class PreDiscoveryPipeline:
         self.builtwith_key = builtwith_key
 
     def fetch_tech_stack(self, domain: str, bypass_cache: bool = False) -> dict:
-        """Retrieves prospect technology stack via BuiltWith API."""
+        """Retrieves prospect technology stack via BuiltWith API[cite: 1]."""
         if not self.builtwith_key:
             return {"info": "BuiltWith API key omitted. Skipping tech lookup."}
         try:
@@ -70,7 +74,7 @@ class PreDiscoveryPipeline:
             return {"error": str(e)}
 
     def run_pipeline(self, prospect_data: dict, bypass_cache: bool = False) -> str:
-        """Aggregates all quantitative signals and contextual CRM data into a structured payload."""
+        """Aggregates all quantitative signals and contextual CRM data into a structured payload[cite: 1]."""
         domain = prospect_data["domain"]
         dba = prospect_data["dba"]
         
@@ -96,7 +100,7 @@ class PreDiscoveryPipeline:
 class PDFReportGenerator:
     @staticmethod
     def _format_markdown_inline(text: str) -> str:
-        """Sanitizes strings and applies basic markdown rendering for PDF conversion."""
+        """Sanitizes strings and applies basic markdown rendering for PDF conversion[cite: 1]."""
         text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
         text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
@@ -104,7 +108,7 @@ class PDFReportGenerator:
 
     @staticmethod
     def generate_pdf(briefing_text: str, prospect_name: str, output_filename: str) -> str:
-        """Translates markdown text from LLM output into a formatted ReportLab PDF."""
+        """Translates markdown text from LLM output into a formatted ReportLab PDF[cite: 1]."""
         doc = SimpleDocTemplate(output_filename, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=20, leading=24, textColor=colors.HexColor("#1E3A8A"), spaceAfter=6)
@@ -141,7 +145,7 @@ class PDFReportGenerator:
         return output_filename
 
 def execute_orchestrator(prospect_data, bypass_cache, api_key, builtwith_key):
-    """Executes the core pipeline, integrating web scraping, LLM analysis, and PDF generation synchronously."""
+    """Executes the core pipeline, integrating web scraping, LLM analysis, and PDF generation synchronously[cite: 1]."""
     pipeline = PreDiscoveryPipeline(builtwith_key)
     raw_data = pipeline.run_pipeline(prospect_data, bypass_cache)
     
@@ -168,19 +172,76 @@ def execute_orchestrator(prospect_data, bypass_cache, api_key, builtwith_key):
     PDFReportGenerator.generate_pdf(response.text, prospect_data["dba"], pdf_filename)
     return pdf_filename
 
+
 # ==============================================================================
-# STREAMLIT UI WITH SESSION STATE PERSISTENCE
+# STREAMLIT UI WITH SESSION STATE PERSISTENCE & FORMATTING
 # ==============================================================================
 st.set_page_config(page_title="Pre-Discovery Studio", layout="wide")
 st.title("Retail ERP Pre-Discovery Studio")
 
-# Initialize session state for persistent user inputs across reboots
+# Initialize persistent session state for last entry[cite: 1]
 if "last_entry" not in st.session_state:
     st.session_state.last_entry = {
         "domain": "", "dba": "", "revenue": "", 
         "headcount": "", "careers_url": "", "bdr_notes": ""
     }
 
+# -----------------------------------------------------------------------------
+# Input Formatting Callbacks
+# -----------------------------------------------------------------------------
+def process_revenue():
+    """
+    Extracts raw string from the UI state, strips symbols, calculates the raw numeric
+    value to prevent type mismatches in backend processing, and pushes the formatted 
+    string ($ + commas) back to the UI.
+    """
+    raw_val = str(st.session_state.get('revenue_display', ''))
+    # Isolate digits and decimal point
+    cleaned = "".join([c for c in raw_val if c.isdigit() or c == '.'])
+    
+    if not cleaned:
+        st.session_state['revenue_display'] = ''
+        st.session_state['revenue_numeric'] = 0.0
+        return
+        
+    try:
+        # Save float for downstream calculations
+        st.session_state['revenue_numeric'] = float(cleaned)
+        # Re-format string for display
+        if '.' in cleaned:
+            int_part, dec_part = cleaned.split('.', 1)
+            st.session_state['revenue_display'] = f"${int(int_part):,}.{dec_part}"
+        else:
+            st.session_state['revenue_display'] = f"${int(cleaned):,}"
+    except ValueError:
+        st.session_state['revenue_display'] = raw_val
+        st.session_state['revenue_numeric'] = 0.0
+
+def process_headcount():
+    """
+    Extracts raw string from the UI state, strips symbols, calculates the raw integer,
+    and pushes the comma-separated string back to the UI.
+    """
+    raw_val = str(st.session_state.get('headcount_display', ''))
+    # Isolate digits only for headcount
+    cleaned = "".join([c for c in raw_val if c.isdigit()])
+    
+    if not cleaned:
+        st.session_state['headcount_display'] = ''
+        st.session_state['headcount_numeric'] = 0
+        return
+        
+    try:
+        st.session_state['headcount_numeric'] = int(cleaned)
+        st.session_state['headcount_display'] = f"{int(cleaned):,}"
+    except ValueError:
+        st.session_state['headcount_display'] = raw_val
+        st.session_state['headcount_numeric'] = 0
+
+
+# -----------------------------------------------------------------------------
+# UI Rendering
+# -----------------------------------------------------------------------------
 scenario_options = {}
 if st.session_state.last_entry.get("dba"):
     scenario_options[f"★ Last Session Entry ({st.session_state.last_entry.get('dba')})"] = st.session_state.last_entry
@@ -196,10 +257,18 @@ st.header("2. Target Prospect Context")
 selected_scenario = st.selectbox("Preset / Last:", list(scenario_options.keys()))
 init_scen = scenario_options[selected_scenario]
 
+# State Sync: Force formatting updates when a new scenario dropdown option is selected
+if "current_scenario" not in st.session_state or st.session_state.current_scenario != selected_scenario:
+    st.session_state.current_scenario = selected_scenario
+    # Seed the display states with raw strings from the dictionary
+    st.session_state['revenue_display'] = init_scen.get("revenue", "")
+    st.session_state['headcount_display'] = init_scen.get("headcount", "")
+    # Programmatically trigger the formatting logic
+    process_revenue()
+    process_headcount()
+
 col1, col2 = st.columns(2)
 
-# Apply placeholder arguments for visual guidance. 
-# Real-time keystroke formatting is omitted due to Streamlit's server-side execution model.
 with col1:
     domain_input = st.text_input(
         "Domain:", 
@@ -212,15 +281,19 @@ with col1:
         value=init_scen.get("careers_url", ""), 
         placeholder="https://company.com/careers"
     )
+
 with col2:
-    revenue_input = st.text_input(
+    # Text inputs bound directly to session state keys to execute callbacks on blur/enter
+    st.text_input(
         "Annual Revenue:", 
-        value=init_scen.get("revenue", ""), 
+        key="revenue_display",
+        on_change=process_revenue,
         placeholder="$1,000,000"
     )
-    headcount_input = st.text_input(
+    st.text_input(
         "Headcount:", 
-        value=init_scen.get("headcount", ""), 
+        key="headcount_display",
+        on_change=process_headcount,
         placeholder="10,000"
     )
 
@@ -230,18 +303,22 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
     if not gemini_key:
         st.error("Error: Gemini API key is required.")
     else:
+        # Construct pipeline payload utilizing the formatted display variables for LLM context[cite: 1]
         prospect_data = {
-            "domain": domain_input, "dba": dba_input,
-            "revenue": revenue_input, "headcount": headcount_input,
-            "careers_url": careers_input, "bdr_notes": bdr_notes_input
+            "domain": domain_input, 
+            "dba": dba_input,
+            "revenue": st.session_state.get('revenue_display', ''), 
+            "headcount": st.session_state.get('headcount_display', ''),
+            "careers_url": careers_input, 
+            "bdr_notes": bdr_notes_input
         }
         
-        # Save state persistently in session state
+        # Save state persistently in session state[cite: 1]
         st.session_state.last_entry = prospect_data
         
         with st.spinner("Executing Pipeline & Synthesizing AI Briefing..."):
             try:
-                # Execute synchronous orchestrator
+                # Execute synchronous orchestrator[cite: 1]
                 pdf_path = execute_orchestrator(prospect_data, bypass_cache, gemini_key, builtwith_key)
                 
                 with open(pdf_path, "rb") as pdf_file:
