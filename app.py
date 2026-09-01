@@ -197,13 +197,32 @@ selected_scenario = st.selectbox("Preset / Last:", list(scenario_options.keys())
 init_scen = scenario_options[selected_scenario]
 
 col1, col2 = st.columns(2)
+
+# Apply placeholder arguments for visual guidance. 
+# Real-time keystroke formatting is omitted due to Streamlit's server-side execution model.
 with col1:
-    domain_input = st.text_input("Domain:", value=init_scen.get("domain", ""))
+    domain_input = st.text_input(
+        "Domain:", 
+        value=init_scen.get("domain", ""), 
+        placeholder="https://company.com"
+    )
     dba_input = st.text_input("DBA Brand:", value=init_scen.get("dba", ""))
-    careers_input = st.text_input("Careers URL:", value=init_scen.get("careers_url", ""))
+    careers_input = st.text_input(
+        "Careers URL:", 
+        value=init_scen.get("careers_url", ""), 
+        placeholder="https://company.com/careers"
+    )
 with col2:
-    revenue_input = st.text_input("Annual Revenue:", value=init_scen.get("revenue", ""))
-    headcount_input = st.text_input("Headcount:", value=init_scen.get("headcount", ""))
+    revenue_input = st.text_input(
+        "Annual Revenue:", 
+        value=init_scen.get("revenue", ""), 
+        placeholder="$1,000,000"
+    )
+    headcount_input = st.text_input(
+        "Headcount:", 
+        value=init_scen.get("headcount", ""), 
+        placeholder="10,000"
+    )
 
 bdr_notes_input = st.text_area("BDR Notes:", value=init_scen.get("bdr_notes", ""), height=100)
 
@@ -222,6 +241,7 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
         
         with st.spinner("Executing Pipeline & Synthesizing AI Briefing..."):
             try:
+                # Execute synchronous orchestrator
                 pdf_path = execute_orchestrator(prospect_data, bypass_cache, gemini_key, builtwith_key)
                 
                 with open(pdf_path, "rb") as pdf_file:
