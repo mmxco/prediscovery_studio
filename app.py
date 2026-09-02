@@ -1,12 +1,3 @@
-**TL;DR**
-
-* Chrome's aggressive security policies frequently suppress `<embed>` tags that utilize `data:` URIs to prevent cross-site scripting (XSS).
-* The most reliable cross-browser method for rendering base64-encoded PDFs in Streamlit is the HTML `<object>` tag.
-* The script below has been updated to use `<object>` with a fallback text string.
-
-Replace the entirety of your `app.py` file with the updated code below:
-
-```python
 import streamlit as st
 import os
 import json
