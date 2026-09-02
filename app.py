@@ -1,3 +1,12 @@
+**TL;DR**
+
+* Chrome's aggressive security policies frequently suppress `<embed>` tags that utilize `data:` URIs to prevent cross-site scripting (XSS).
+* The most reliable cross-browser method for rendering base64-encoded PDFs in Streamlit is the HTML `<object>` tag.
+* The script below has been updated to use `<object>` with a fallback text string.
+
+Replace the entirety of your `app.py` file with the updated code below:
+
+```python
 import streamlit as st
 import os
 import json
@@ -498,8 +507,8 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
                 if mime_type == "application/pdf":
                     st.markdown("### Document Preview")
                     base64_pdf = base64.b64encode(file_bytes).decode('utf-8')
-                    # Render using <embed> to bypass Chrome's top-frame navigation block for data URIs
-                    pdf_display = f'<embed src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf">'
+                    # Utilizing the <object> tag for maximum cross-browser compatibility with base64 encoded PDFs
+                    pdf_display = f'<object data="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="800px"><p>Your browser does not support rendering PDFs inline. Please use the download button above.</p></object>'
                     st.markdown(pdf_display, unsafe_allow_html=True)
                 elif mime_type == "text/plain":
                     st.markdown("### Generated Prompt Preview")
@@ -507,3 +516,5 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
 
             except Exception as e:
                 st.error(f"Pipeline Failed: {e}")
+
+```
