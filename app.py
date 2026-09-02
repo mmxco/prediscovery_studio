@@ -498,7 +498,8 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
                 if mime_type == "application/pdf":
                     st.markdown("### Document Preview")
                     base64_pdf = base64.b64encode(file_bytes).decode('utf-8')
-                    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
+                    # Render using <embed> to bypass Chrome's top-frame navigation block for data URIs
+                    pdf_display = f'<embed src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf">'
                     st.markdown(pdf_display, unsafe_allow_html=True)
                 elif mime_type == "text/plain":
                     st.markdown("### Generated Prompt Preview")
