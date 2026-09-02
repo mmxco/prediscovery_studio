@@ -1,5 +1,5 @@
 # Retail ERP Pre-Discovery Studio
-
+[![Pre-Discovery Studio Demo](URL_TO_THUMBNAIL_IMAGE)][https://youtu.be/K0b_UBXcoC0]
 **TL;DR**
 A Streamlit-based web application that automates presales research by synthesizing prospect firmographics, tech stacks, and job posting signals into generic executive briefing using Gemini or ChatGPT AI.
 
