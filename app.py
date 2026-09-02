@@ -507,5 +507,3 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
 
             except Exception as e:
                 st.error(f"Pipeline Failed: {e}")
-
-```
