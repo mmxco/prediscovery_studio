@@ -7,6 +7,8 @@ import html
 import requests
 import base64
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Import AI integration libraries
 from google import genai
@@ -36,6 +38,20 @@ SCENARIOS = {
 # -----------------------------------------------------------------------------
 # CORE PIPELINE & PARSING UTILITIES
 # -----------------------------------------------------------------------------
+def create_retry_session() -> requests.Session:
+    """Configures a requests Session with automatic retries for transient HTTP errors."""
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "OPTIONS"]
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
 def parse_manual_builtwith(raw_text: str) -> dict:
     """
     Cleans and structures raw pasted BuiltWith text or JSON into a concise, 
@@ -75,7 +91,9 @@ def scrape_job_postings_sync(careers_url: str) -> list:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept-Language": "en-US,en;q=0.9"
         }
-        resp = requests.get(careers_url, headers=headers, timeout=10)
+        session = create_retry_session()
+        resp = session.get(careers_url, headers=headers, timeout=10)
+        
         if resp.status_code != 200:
             return []
             
@@ -98,6 +116,7 @@ class PreDiscoveryPipeline:
     
     def __init__(self, builtwith_key: str):
         self.builtwith_key = builtwith_key
+        self.session = create_retry_session()
 
     def fetch_tech_stack(self, domain: str, manual_builtwith: str = "", bypass_cache: bool = False) -> dict:
         """Retrieves prospect technology stack mapping via manual paste or the BuiltWith REST API."""
@@ -109,7 +128,7 @@ class PreDiscoveryPipeline:
             
         try:
             url = f"https://api.builtwith.com/v23/api.json?KEY={self.builtwith_key}&LOOKUP={domain}"
-            response = requests.get(url, timeout=10)
+            response = self.session.get(url, timeout=15)
             if response.status_code == 200:
                 return parse_manual_builtwith(response.text)
             else:
@@ -258,29 +277,42 @@ def execute_orchestrator(prospect_data, bypass_cache, ai_provider, api_key, buil
             f.write(f"Generate executive briefing from this context:\n{raw_data}\n")
         return txt_filename, "text/plain"
     
-    # AI Provider Routing Logic
-    if ai_provider == "Gemini":
-        client = genai.Client(api_key=api_key)
-        chat = client.chats.create(
-            model='gemini-2.5-flash',
-            config=types.GenerateContentConfig(system_instruction=system_instruction, temperature=0.2)
-        )
-        response = chat.send_message(f"Generate executive briefing from this context:\n{raw_data}")
-        briefing_text = response.text
-        
-    elif ai_provider == "ChatGPT":
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": f"Generate executive briefing from this context:\n{raw_data}"}
-            ],
-            temperature=0.2
-        )
-        briefing_text = response.choices[0].message.content
-    else:
-        raise ValueError("Invalid AI Provider selected.")
+    # AI Provider Routing Logic with Retries
+    briefing_text = ""
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            if ai_provider == "Gemini":
+                client = genai.Client(api_key=api_key)
+                chat = client.chats.create(
+                    model='gemini-2.5-flash',
+                    config=types.GenerateContentConfig(system_instruction=system_instruction, temperature=0.2)
+                )
+                response = chat.send_message(f"Generate executive briefing from this context:\n{raw_data}")
+                briefing_text = response.text
+                
+            elif ai_provider == "ChatGPT":
+                client = OpenAI(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": system_instruction},
+                        {"role": "user", "content": f"Generate executive briefing from this context:\n{raw_data}"}
+                    ],
+                    temperature=0.2
+                )
+                briefing_text = response.choices[0].message.content
+            
+            # Break out of the retry loop if execution is successful
+            break
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)  # Exponential backoff (1s, 2s)
+                continue
+            else:
+                raise Exception(f"AI Provider error after {max_retries} attempts: {str(e)}")
     
     pdf_filename = f"{base_name}_Pre_Discovery_Brief.pdf"
     PDFReportGenerator.generate_pdf(briefing_text, prospect_data["dba"], pdf_filename)
