@@ -5,7 +5,6 @@ import time
 import re
 import html
 import requests
-import base64
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -247,7 +246,7 @@ def execute_orchestrator(prospect_data, bypass_cache, ai_provider, api_key, buil
     """
     Executes the core pipeline, integrating web scraping, LLM analysis, and PDF generation.
     Routes the execution to Gemini, ChatGPT, or generates a manual text prompt.
-    Returns a tuple of (file_path, mime_type).
+    Returns a tuple of (file_path, mime_type, preview_content).
     """
     pipeline = PreDiscoveryPipeline(builtwith_key)
     raw_data = pipeline.run_pipeline(prospect_data, manual_builtwith=manual_builtwith, bypass_cache=bypass_cache)
@@ -268,14 +267,20 @@ def execute_orchestrator(prospect_data, bypass_cache, ai_provider, api_key, buil
     # Manual Prompt Generation Logic
     if ai_provider == "Other (Manual Prompt)":
         txt_filename = f"{base_name}_Manual_Prompt.txt"
+        
+        manual_prompt_content = (
+            "=== SYSTEM INSTRUCTION ===\n"
+            "Copy and paste the following into your AI's system prompt or custom instructions:\n\n"
+            f"{system_instruction}\n\n"
+            "=== USER PROMPT ===\n"
+            "Copy and paste the following into the user chat interface:\n\n"
+            f"Generate executive briefing from this context:\n{raw_data}\n"
+        )
+        
         with open(txt_filename, "w", encoding="utf-8") as f:
-            f.write("=== SYSTEM INSTRUCTION ===\n")
-            f.write("Copy and paste the following into your AI's system prompt or custom instructions:\n\n")
-            f.write(system_instruction + "\n\n")
-            f.write("=== USER PROMPT ===\n")
-            f.write("Copy and paste the following into the user chat interface:\n\n")
-            f.write(f"Generate executive briefing from this context:\n{raw_data}\n")
-        return txt_filename, "text/plain"
+            f.write(manual_prompt_content)
+        
+        return txt_filename, "text/plain", manual_prompt_content
     
     # AI Provider Routing Logic with Retries
     briefing_text = ""
@@ -316,7 +321,8 @@ def execute_orchestrator(prospect_data, bypass_cache, ai_provider, api_key, buil
     
     pdf_filename = f"{base_name}_Pre_Discovery_Brief.pdf"
     PDFReportGenerator.generate_pdf(briefing_text, prospect_data["dba"], pdf_filename)
-    return pdf_filename, "application/pdf"
+    
+    return pdf_filename, "application/pdf", briefing_text
 
 
 # ==============================================================================
@@ -473,7 +479,7 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
         with st.spinner(f"Executing Pipeline via {ai_provider}..."):
             try:
                 # Pass the selected provider and associated key to the orchestrator
-                file_path, mime_type = execute_orchestrator(
+                file_path, mime_type, preview_content = execute_orchestrator(
                     prospect_data=prospect_data, 
                     bypass_cache=bypass_cache, 
                     ai_provider=ai_provider,
@@ -494,16 +500,14 @@ if st.button("Run Pre-Discovery Pipeline", type="primary"):
                         mime=mime_type
                     )
                 
-                # Automatically display the deliverable in the UI
+                # Render the UI Preview using native Streamlit Markdown
+                st.markdown("---")
                 if mime_type == "application/pdf":
-                    st.markdown("### Document Preview")
-                    base64_pdf = base64.b64encode(file_bytes).decode('utf-8')
-                    # Utilizing the <object> tag for maximum cross-browser compatibility with base64 encoded PDFs
-                    pdf_display = f'<object data="data:application/pdf;base64,{base64_pdf}" type="application/pdf" width="100%" height="800px"><p>Your browser does not support rendering PDFs inline. Please use the download button above.</p></object>'
-                    st.markdown(pdf_display, unsafe_allow_html=True)
+                    st.markdown("### Executive Briefing Preview")
+                    st.markdown(preview_content)
                 elif mime_type == "text/plain":
                     st.markdown("### Generated Prompt Preview")
-                    st.text_area("Prompt Content:", value=file_bytes.decode('utf-8'), height=400)
+                    st.text_area("Prompt Content:", value=preview_content, height=400)
 
             except Exception as e:
                 st.error(f"Pipeline Failed: {e}")
